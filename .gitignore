@@ -1,6 +1,7 @@
 *.pyc
 *.iml
 *.swp
+*.out
 .project
 .pydevproject
 .DS_Store

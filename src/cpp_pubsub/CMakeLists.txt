@@ -29,10 +29,14 @@ ament_target_dependencies(talker rclcpp std_msgs)
 add_executable(listener src/subscriber.cpp)
 ament_target_dependencies(listener rclcpp std_msgs)
 
-add_executable(turtlecontrol src/turtlecontrol.cpp)
+add_executable(turtlecontrol src/turtlecontrol.cpp src/graphics/shape.cpp)
 ament_target_dependencies(turtlecontrol rclcpp std_msgs geometry_msgs turtlesim)
+#glm 
+add_subdirectory(vendor/glm)
 
-target_link_libraries(turtlecontrol ${OpenCV_LIBS})
+target_link_libraries(turtlecontrol ${OpenCV_LIBS} glm::glm)
+
+
 
 
 if(BUILD_TESTING)
