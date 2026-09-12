@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.8)
 project(cpp_pubsub)
 
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
@@ -9,6 +12,11 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(turtlesim REQUIRED)
+
+# OpenCv package
+find_package(OpenCV REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
@@ -20,6 +28,12 @@ ament_target_dependencies(talker rclcpp std_msgs)
 
 add_executable(listener src/subscriber.cpp)
 ament_target_dependencies(listener rclcpp std_msgs)
+
+add_executable(turtlecontrol src/turtlecontrol.cpp)
+ament_target_dependencies(turtlecontrol rclcpp std_msgs geometry_msgs turtlesim)
+
+target_link_libraries(turtlecontrol ${OpenCV_LIBS})
+
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -37,6 +51,7 @@ endif()
 install(TARGETS
   talker
   listener
+  turtlecontrol
   DESTINATION lib/${PROJECT_NAME})
 
 ament_package()
