@@ -1,48 +1,129 @@
+//std
+#include <chrono>
+#include <memory>
+#include <rclcpp/service.hpp>
+#include <std_srvs/srv/detail/trigger__struct.hpp>
+#include <vector>
+#include <atomic>
 
+//ros
 #include <rclcpp/client.hpp>
 #include <rclcpp/logging.hpp>
 #include <rclcpp/rclcpp.hpp>
-#include "turtlesim/srv/set_pen.hpp"
-#include "turtlesim/srv/teleport_absolute.hpp"
-
-#include <chrono>
-#include <memory>
 #include <turtlesim/srv/detail/set_pen__struct.hpp>
 #include <turtlesim/srv/detail/teleport_absolute__struct.hpp>
-#include <vector>
-#include <atomic>
-#include "graphics/shape.h"
-
+#include <std_srvs/srv/trigger.hpp>
+#include <std_srvs/srv/empty.hpp>
+#include <cpp_pubsub/srv/draw_shape.hpp>
 //math
 #include <glm/glm.hpp>
+
+//shapes
+#include "graphics/shape.h"
+
+#define TURTLE_CENTER glm::vec2(5.544445f, 5.544445f)
+
 using namespace std::chrono_literals;
 
 enum class turtlestate { LIFTPEN, START, PUSHPEN, DRAW, DONE };
 
 class TurtleController : public rclcpp::Node {
-public:
-    TurtleController(std::shared_ptr<Shape> shape)
-        : Node("turtlecontroller"),
-          shape(shape),
-          contours(shape->GetContours()),
-          width(shape->GetSpaceDimensions().x),
-          height(shape->GetSpaceDimensions().y) {
-        pen_client = create_client<turtlesim::srv::SetPen>("/turtle1/set_pen");
-        teleport_client = create_client<turtlesim::srv::TeleportAbsolute>("/turtle1/teleport_absolute");
+private:
+    std::atomic_bool isWorking{false};
+    rclcpp::Client<turtlesim::srv::SetPen>::SharedPtr pen_client;
+    rclcpp::Client<turtlesim::srv::TeleportAbsolute>::SharedPtr teleport_client;
+    rclcpp::Client<std_srvs::srv::Empty>::SharedPtr clear_client;
 
-        timer = create_wall_timer(3ms, std::bind(&TurtleController::controlLoop, this));
+    rclcpp::TimerBase::SharedPtr timer;
+    turtlestate state = turtlestate::DONE;
 
-        for (auto& v : contours) {
+    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr pause_service;
+    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reset_service;
+    rclcpp::Service<cpp_pubsub::srv::DrawShape>::SharedPtr draw_service;
+
+    bool paused = false;
+
+    void InitializeShape(std::shared_ptr<Shape> _shape) {
+        shape = _shape;
+        for (auto& v : shape->GetContours()) {
             for (auto& p : v) {
-                RCLCPP_INFO(this->get_logger(), "point: (%d, %d)", p.x, p.y);
+                RCLCPP_INFO(this->get_logger(), "point: (%f, %f)", p.x, p.y); // see what the actual point values are
             }
         }
+
+        RCLCPP_INFO(get_logger(), "Contours to draw: %d", static_cast<int>(shape->GetContours().size()));
+    }
+
+public:
+    TurtleController() : Node("turtlecontroller") {
+        pen_client = create_client<turtlesim::srv::SetPen>("/turtle1/set_pen");
+        teleport_client = create_client<turtlesim::srv::TeleportAbsolute>("/turtle1/teleport_absolute");
+        clear_client = create_client<std_srvs::srv::Empty>("/clear");
+        timer = create_wall_timer(3ms, std::bind(&TurtleController::controlLoop, this));
+
+        pause_service = this->create_service<std_srvs::srv::Trigger>(
+            "/turtle/pause",
+            [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+                   std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+                response->message = paused ? "Resuming the turtle" : "Pausing the turtle";
+                response->success = true;
+                paused = !paused;
+                RCLCPP_INFO(get_logger(), "Pause service successfully ran.");
+            });
+
+        reset_service = this->create_service<std_srvs::srv::Trigger>(
+            "turtle/reset",
+            [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+                   std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+                response->message = "reseting turtle.";
+                response->success = true;
+                shape.reset();
+                state = turtlestate::DONE;
+                setPen(true);
+                teleport(TURTLE_CENTER, 0.0f);
+                currentContour = 0, currentPoint = 0;
+                auto clear_request = std::make_shared<std_srvs::srv::Empty::Request>();
+                clear_client->async_send_request(clear_request);
+                RCLCPP_INFO(get_logger(), "Canvas restored.");
+            });
+
+        draw_service = this->create_service<cpp_pubsub::srv::DrawShape>(
+            "turtle/draw",
+            [this](const std::shared_ptr<cpp_pubsub::srv::DrawShape::Request> request,
+                   std::shared_ptr<cpp_pubsub::srv::DrawShape::Response> response) {
+                shape.reset();
+                std::string shape_name = request->shape_name;
+                RCLCPP_INFO(get_logger(), "passed argument: %s", shape_name.c_str());
+
+                response->success = true;
+                if (shape_name == "sierpinski") {
+                    state = turtlestate::LIFTPEN;
+                    auto triangle = std::make_shared<TriangularFractalShape>(6);
+                    InitializeShape(triangle);
+
+                } else {
+                    auto cvimg = std::make_shared<OpenCVContourShape>(shape_name);
+                    if (cvimg->GetContours().empty()) {
+                        RCLCPP_ERROR(get_logger(), "Passed name doesn't exist, either as a file path or shapename");
+                        response->success = false;
+                    } else {
+                        state = turtlestate::LIFTPEN;
+                        InitializeShape(cvimg);
+                    }
+                }
+
+                response->message = response->success ? "Draw service started." : "Aborted.";
+            });
+        teleport_client->wait_for_service(1s);
+        pen_client->wait_for_service(1s);
+        clear_client->wait_for_service(1s);
     }
 
 private:
     std::shared_ptr<Shape> shape;
 
     glm::vec2 transfromPointToTurtleSpace(glm::vec2 p) {
+        double width = shape->GetSpaceDimensions().x, height = shape->GetSpaceDimensions().y;
         double drawingSpace = 10.0; //clamp the space under 11 to avoid collisions with space boundaries
         double offsetX = (11.0 - drawingSpace) / (2.0);
         double offsetY = (11.0 - drawingSpace) / (2.0);
@@ -57,23 +138,28 @@ private:
         return glm::vec2(x, y);
     }
 
-    int currentContour = 0, currentPoint = 0;
+    size_t currentContour = 0, currentPoint = 0;
 
     void controlLoop() {
         using enum turtlestate;
+
+        if (paused) {
+            RCLCPP_INFO(get_logger(), "turtle controller is paused.");
+            return;
+        }
         if (state == DONE || isWorking) {
             return;
         }
 
-        if (currentContour >= contours.size()) {
+        if (currentContour >= shape->GetContours().size()) {
             RCLCPP_INFO(get_logger(), "Done drawing all contours");
             state = DONE;
             return;
         }
-        glm::vec2 target = transfromPointToTurtleSpace(contours[currentContour][currentPoint]);
+        glm::vec2 target = transfromPointToTurtleSpace(shape->GetContours()[currentContour][currentPoint]);
         glm::vec2 prev = target;
         if (currentPoint != 0) {
-            prev = transfromPointToTurtleSpace(contours[currentContour][currentPoint - 1]);
+            prev = transfromPointToTurtleSpace(shape->GetContours()[currentContour][currentPoint - 1]);
         }
 
         double theta = std::atan2(target.y - prev.y, target.x - prev.x);
@@ -94,7 +180,7 @@ private:
             case DRAW:
                 teleport(target, theta);
                 currentPoint++;
-                if (currentPoint >= contours[currentContour].size()) {
+                if (currentPoint >= shape->GetContours()[currentContour].size()) {
                     currentPoint = 0;
                     currentContour++;
                     state = LIFTPEN;
@@ -132,26 +218,14 @@ private:
             this->isWorking = false; // reset isWorking once done
         });
     }
-
-    std::atomic_bool isWorking{false};
-
-private:
-    rclcpp::Client<turtlesim::srv::SetPen>::SharedPtr pen_client;
-    rclcpp::Client<turtlesim::srv::TeleportAbsolute>::SharedPtr teleport_client;
-    rclcpp::TimerBase::SharedPtr timer;
-    turtlestate state = turtlestate::LIFTPEN;
-    std::vector<std::vector<glm::vec2>> contours;
-    double width;
-    double height;
 };
+
 int main(int argc, char* argv[]) {
     for (int i = 0; i < argc; ++i)
         std::cout << i << ": " << argv[i] << '\n';
 
     rclcpp::init(argc, argv);
-    std::shared_ptr<Shape> shape = std::make_shared<OpenCVContourShape>(std::string(argv[1]));
-    auto triangle = std::make_shared<TriangularFractalShape>(5);
-    auto turtle = std::make_shared<TurtleController>(shape);
+    auto turtle = std::make_shared<TurtleController>();
     rclcpp::spin(turtle);
     rclcpp::shutdown();
 

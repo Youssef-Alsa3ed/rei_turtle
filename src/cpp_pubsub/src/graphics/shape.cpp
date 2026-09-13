@@ -3,6 +3,8 @@
 #include <opencv2/highgui.hpp>
 #include <opencv2/opencv.hpp>
 #include <vector>
+#include <cmath>
+#include <algorithm>
 
 using namespace glm;
 OpenCVContourShape::OpenCVContourShape(const std::string& path) {
@@ -26,9 +28,7 @@ OpenCVContourShape::OpenCVContourShape(const std::string& path) {
     //clean noise
     std::erase_if(contours, [](const auto& contour) { return contour.size() < 2; });
 
-    std::cout << "contours to draw: " << contours.size() << '\n';
-
-    cv::Mat preview = cv::Mat::zeros(image.size(), CV_8UC3);
+    // cv::Mat preview = cv::Mat::zeros(image.size(), CV_8UC3);
 
     vectorizedContours.resize(contours.size());
 

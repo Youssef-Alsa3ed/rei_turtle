@@ -14,23 +14,28 @@ find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(turtlesim REQUIRED)
-
+find_package(std_srvs REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
 # OpenCv package
 find_package(OpenCV REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
 
-
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "srv/DrawShape.srv"
+)
 # executables
-add_executable(talker src/publisher.cpp)
-ament_target_dependencies(talker rclcpp std_msgs)
+# add_executable(talker src/publisher.cpp)
+# ament_target_dependencies(talker rclcpp std_msgs)
 
-add_executable(listener src/subscriber.cpp)
-ament_target_dependencies(listener rclcpp std_msgs)
+# add_executable(listener src/subscriber.cpp)
+# ament_target_dependencies(listener rclcpp std_msgs)
 
 add_executable(turtlecontrol src/turtlecontrol.cpp src/graphics/shape.cpp)
-ament_target_dependencies(turtlecontrol rclcpp std_msgs geometry_msgs turtlesim)
+ament_target_dependencies(turtlecontrol rclcpp std_msgs geometry_msgs turtlesim std_srvs)
+rosidl_target_interfaces(turtlecontrol ${PROJECT_NAME} "rosidl_typesupport_cpp")
+
 #glm 
 add_subdirectory(vendor/glm)
 
@@ -53,8 +58,6 @@ endif()
 
 
 install(TARGETS
-  talker
-  listener
   turtlecontrol
   DESTINATION lib/${PROJECT_NAME})
 
