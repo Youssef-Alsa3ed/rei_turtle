@@ -14,12 +14,12 @@
 #include <turtlesim/srv/detail/teleport_absolute__struct.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <std_srvs/srv/empty.hpp>
-#include <cpp_pubsub/srv/draw_shape.hpp>
 //math
 #include <glm/glm.hpp>
 
 //shapes
 #include "graphics/shape.h"
+#include <cpp_pubsub/srv/draw_shape.hpp>
 
 #define TURTLE_CENTER glm::vec2(5.544445f, 5.544445f)
 
